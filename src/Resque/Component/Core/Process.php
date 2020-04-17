@@ -5,7 +5,7 @@ namespace Resque\Component\Core;
 use Resque\Component\Core\Exception\ResqueRuntimeException;
 
 /**
- * @todo this should have an interface
+ * @todo make use of SystemInterface.
  */
 class Process
 {
@@ -24,12 +24,19 @@ class Process
      */
     protected $exitCode;
 
+    /**
+     * Constructor.
+     *
+     * @param string|null $pid The current system process ID.
+     */
     public function __construct($pid = null)
     {
         $this->pid = $pid;
     }
 
     /**
+     * Get PID.
+     *
      * @return integer|null The current pid, if set.
      */
     public function getPid()
@@ -38,8 +45,14 @@ class Process
     }
 
     /**
-     * @param integer $pid A process id.
+     * Set PID.
      *
+     * @deprecated This makes no sense when you consider that in theory Process is the thing that knows about
+     *             and manages PIDs.
+     *
+     * @todo see Resque\Component\Core\Foreman::startWorker() it calls self::setPid().
+     *
+     * @param integer $pid A process id.
      * @return $this
      */
     public function setPid($pid)
@@ -49,14 +62,21 @@ class Process
         return $this;
     }
 
+    /**
+     * Set PID from current system process.
+     *
+     * @return $this
+     */
     public function setPidFromCurrentProcess()
     {
-        $this->setPid(getmypid());
+        $this->pid = getmypid();
 
         return $this;
     }
 
     /**
+     * Fork.
+     *
      * fork() helper method for php-resque
      *
      * @see pcntl_fork()
@@ -88,8 +108,7 @@ class Process
             return null;
         }
 
-        $child = new self();
-        $child->setPid($pid);
+        $child = new self($pid);
 
         return $child;
     }
@@ -146,7 +165,8 @@ class Process
 
         // @todo Work out if I care to check the result, and if I did what to do about it... Exception?
         posix_kill($this->getPid(), $signal);
-        $this->setPid(null);
+
+        $this->pid = null;
 
         return $this;
     }
@@ -189,8 +209,14 @@ class Process
      */
     public function setTitle($title)
     {
-        if(getmypid() != $this->getPid()){
-            throw new ResqueRuntimeException("This function wont work unless called from the same process.");
+        if (getmypid() != $this->getPid()) {
+            throw new ResqueRuntimeException(
+                sprintf(
+                    'Can not set title when process pid has changed. Expected "%s", got "%s"',
+                    $this->getPid(),
+                    getmypid()
+                )
+            );
         }
 
         // @todo, it is the workers domain to set this, move this logic back to the worker.
