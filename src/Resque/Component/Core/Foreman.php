@@ -131,7 +131,9 @@ class Foreman implements LoggerAwareInterface
 
             $this->registry->register($worker);
             $worker->work();
-            $this->registry->deregister($worker);
+            if($worker->isDeregister()) {
+				$this->registry->deregister($worker);
+			}
 
             exit(0);
         }

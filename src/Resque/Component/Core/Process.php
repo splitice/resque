@@ -9,6 +9,8 @@ use Resque\Component\Core\Exception\ResqueRuntimeException;
  */
 class Process
 {
+    public static $Name = 'resque';
+
     /**
      * @var int|null Posix process id.
      */
@@ -194,7 +196,7 @@ class Process
         }
 
         // @todo, it is the workers domain to set this, move this logic back to the worker.
-        $processTitle = 'resque-' . Resque::VERSION . ': ' . $title;
+        $processTitle = self::$Name . ': ' . $title;
 
         if (function_exists('cli_set_process_title')) {
             // @todo remove @, it is throwing errors on my mac.

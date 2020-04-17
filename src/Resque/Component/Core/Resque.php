@@ -38,13 +38,14 @@ class Resque
      * @param string $queueName The name of the queue the job should go in.
      * @param string $jobClass The FQCN of your targeted job class.
      * @param array $arguments The arguments to pass to $jobClass->perform().
-     *
+     * @param bool $fork
      * @return JobInterface The job instance that was created if enqueue was successful, exception otherwise.
      */
-    public function enqueue($queueName, $jobClass, $arguments = array())
+    public function enqueue($queueName, $jobClass, $arguments = array(), $fork = false)
     {
         $queue = $this->getQueue($queueName);
         $job = new Job($jobClass, $arguments);
+        $job->setFork($fork);
         $queue->enqueue($job);
 
         return $job;

@@ -66,6 +66,8 @@ class Worker implements
      */
     protected $shutdown = false;
 
+    protected $deregister = true;
+
     /**
      * @var boolean True if this worker is paused.
      */
@@ -80,6 +82,8 @@ class Worker implements
      * @var EventDispatcherInterface
      */
     protected $eventDispatcher;
+
+    protected $parent;
 
     /**
      * @var bool if the worker should fork to perform.
@@ -96,6 +100,7 @@ class Worker implements
         JobInstanceFactoryInterface $jobInstanceFactory,
         EventDispatcherInterface $eventDispatcher
     ) {
+    	$this->parent = posix_getpid();
         $this->jobInstanceFactory = $jobInstanceFactory;
         $this->eventDispatcher = $eventDispatcher;
     }
@@ -149,7 +154,7 @@ class Worker implements
      * @param Process $process
      * @return $this
      */
-    public function setProcess(Process $process)
+    public function setProcess(Process $process = null)
     {
         $this->process = $process;
 
@@ -179,13 +184,18 @@ class Worker implements
      * Queues are checked every $interval (seconds) for new jobs.
      *
      * @param int $interval How often to check for new jobs across the queues. @todo remove, use setInterval or similar
+     * @throws InvalidJobException
      */
-    public function work($interval = 3)
+    public function work($interval = 0.1)
     {
         $this->startup();
 
+		$job = null;
+
         while (true) {
-            if ($this->shutdown) {
+			$this->checkParent();
+
+			if ($this->shutdown) {
                 break;
             }
 
@@ -198,10 +208,12 @@ class Worker implements
                     break;
                 }
 
-                usleep($interval * 1000000);
+                sleep($interval);
 
                 continue;
             }
+
+            $previous_was_job = $job !== null;
 
             try {
                 $job = $this->reserve();
@@ -227,12 +239,16 @@ class Worker implements
 
                 $this->getLogger()->debug('Sleeping for {seconds}s, no jobs on {queues}', array('queues'=>implode(', ',array_map(function($a){return $a->getName();}, $this->getQueues())), 'seconds'=>$interval));
 
+                if(!$previous_was_job){
+                	gc_collect_cycles();
+				}
+
                 sleep($interval);
 
                 continue;
             }
 
-            $this->getLogger()->notice('Starting work on {job}', array('job' => $job));
+            $this->getLogger()->notice('Starting work on {job}', array('job' => $job->getJobClass()));
 
             if ($job instanceof TrackableJobInterface) {
                 $job->setState(JobInterface::STATE_PERFORMING);
@@ -240,7 +256,7 @@ class Worker implements
 
             $this->setCurrentJob($job);
 
-            if ($this->fork) {
+            if ($this->fork || $job->getFork()) {
                 $this->eventDispatcher->dispatch(
                     ResqueWorkerEvents::BEFORE_FORK_TO_PERFORM,
                     new WorkerJobEvent($this, $job)
@@ -249,6 +265,8 @@ class Worker implements
                 $this->childProcess = $this->getProcess()->fork();
 
                 if (null === $this->childProcess) {
+                    $this->setProcess(null);
+
                     // This is child process, it will perform the job and then die.
                     $this->eventDispatcher->dispatch(
                         ResqueWorkerEvents::AFTER_FORK_TO_PERFORM,
@@ -256,6 +274,11 @@ class Worker implements
                     );
 
                     $this->perform($job);
+
+                    if(getmypid() != $this->getProcess()->getPid()){
+                        $this->getLogger()->warning("Job forked and did not close process, closing ".getmypid());
+                        exit (0);
+                    }
 
                     exit(0);
                 } else {
@@ -286,6 +309,19 @@ class Worker implements
         }
     }
 
+    protected function checkParent(){
+        $parentRunning = posix_kill($this->parent, 0);
+        if(!$parentRunning){
+            $this->logger->alert("Parent process ".$this->parent." is not running, child detacted. Exiting.");
+            exit;
+        }
+    	$parentPid = posix_getppid ();
+    	if($parentPid != $this->parent){
+    		$this->logger->alert("Child ".$this->id." (".getmypid().") is detached from parent (".$parentPid." != ".$this->parent.")");
+    		exit;
+		}
+	}
+
     /**
      * Perform necessary actions to start a worker
      */
@@ -307,20 +343,22 @@ class Worker implements
      */
     public function reserve()
     {
+        /** @var QueueInterface $queue */
         foreach ($this->queues as $queue) {
             $this->getLogger()->debug(
                 'Checking {queue} for jobs',
                 array(
-                    'queue' => $queue
+                    'queue' => $queue->getName()
                 )
             );
+            /** @var JobInterface $job */
             $job = $queue->dequeue();
             if (false === (null === $job)) {
                 $this->getLogger()->info(
                     'Found job {job} on queue {queue}',
                     array(
-                        'job' => $job,
-                        'queue' => $queue,
+                        'job' => $job->getJobClass(),
+                        'queue' => $queue->getName(),
                     )
                 );
 
@@ -375,7 +413,7 @@ class Worker implements
             $job->setState(JobInterface::STATE_COMPLETE);
         }
 
-        $this->getLogger()->notice('{job} has successfully processed', array('job' => $job));
+        $this->getLogger()->notice('{job} has successfully processed', array('job' => $job->getJobClass()));
 
         $this->eventDispatcher->dispatch(ResqueJobEvents::PERFORMED, new WorkerJobEvent($this, $job));
 
@@ -397,9 +435,9 @@ class Worker implements
         $this->getLogger()->error(
             'Perform failure on {job}, {message}',
             array(
-                'job' => $job,
+                'job' => $job->getJobClass(),
                 'message' => $exception->getMessage(),
-                'exception' => $exception
+                'trace' => $exception->getTraceAsString()
             )
         );
 
@@ -455,16 +493,12 @@ class Worker implements
      */
     private function registerSignalHandlers()
     {
-        if (!function_exists('pcntl_signal')) {
-            return;
-        }
-
-        declare(ticks = 100);
+        pcntl_async_signals(true);
 
         $worker = $this;
         $signal_handler = function($cbname) use($worker){
             return function($signo) use($worker, $cbname){
-                $worker->getLogger()->debug("Signal {signo} at pid:{pid} received, doing {action}", array('signo'=>$signo, 'action'=>$cbname, 'pid'=>getmypid()));
+                $worker->getLogger()->info("Signal {signo} at pid:{pid} received, doing {action}", array('signo'=>$signo, 'action'=>$cbname, 'pid'=>getmypid()));
                 return $worker->$cbname($signo);
             };
         };
@@ -524,13 +558,16 @@ class Worker implements
         }
     }
 
-    /**
-     * Schedule a worker for shutdown. Will finish processing the current job
-     * and when the timeout interval is reached, the worker will shut down.
-     */
-    public function stop()
+	/**
+	 * Schedule a worker for shutdown. Will finish processing the current job
+	 * and when the timeout interval is reached, the worker will shut down.
+	 * @param bool $deregister
+	 * @return void
+	 */
+    public function stop($deregister = true)
     {
         $this->shutdown = true;
+        $this->deregister = $deregister;
         if($this->getProcess()->getPid() == getmypid()) {
             $this->getLogger()->notice('Worker {worker} shutting down', array('worker' => $this));
         }else{
@@ -658,4 +695,12 @@ class Worker implements
     {
         return $this->getId();
     }
+
+	/**
+	 * @return bool
+	 */
+	public function isDeregister()
+	{
+		return $this->deregister;
+	}
 }

@@ -41,6 +41,11 @@ class Job implements
     protected $originQueue;
 
     /**
+     * @var bool if this job should be allowed for fork
+     */
+    protected $fork;
+
+    /**
      * Constructor
      *
      * Instantiate a new instance of a job.
@@ -52,6 +57,30 @@ class Job implements
     {
         $this->class = $jobClass;
         $this->setArguments($arguments);
+    }
+
+    /**
+     * @return bool
+     */
+    public function isFork()
+    {
+        return $this->fork;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getFork()
+    {
+        return $this->fork;
+    }
+
+    /**
+     * @param bool $fork
+     */
+    public function setFork($fork)
+    {
+        $this->fork = $fork;
     }
 
     /**

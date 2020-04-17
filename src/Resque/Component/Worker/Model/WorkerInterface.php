@@ -17,6 +17,8 @@ interface WorkerInterface
      */
     public function getId();
 
+    public function isDeregister();
+
     /**
      * Set hostname
      *
@@ -87,14 +89,15 @@ interface WorkerInterface
      */
     public function getCurrentJob();
 
-    /**
-     * Stop
-     *
-     * The worker will finish up the current job, if there is one at all, and then exit.
-     *
-     * @return $this
-     */
-    public function stop();
+	/**
+	 * Stop
+	 *
+	 * The worker will finish up the current job, if there is one at all, and then exit.
+	 *
+	 * @param bool $deregister
+	 * @return $this
+	 */
+    public function stop($deregister = true);
 
     /**
      * Halt

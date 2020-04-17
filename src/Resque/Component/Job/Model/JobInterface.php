@@ -12,6 +12,8 @@ interface JobInterface
     const STATE_FAILED     = 'failed';
     const STATE_COMPLETE   = 'complete';
 
+    public function getFork();
+
     /**
      * Set Id
      *
