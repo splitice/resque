@@ -1,21 +1,25 @@
 <?php
+
 namespace Resque\Component\System;
 
+use Resque\Component\Core\Process;
+
 /**
- * Interface to a standard POSIX system
- * @todo getmypid and other system functions
- *
- * @package Resque\Component\System
+ * Interface to a standard system
  */
 class StandardSystem implements SystemInterface
 {
     /**
-     * @var string The systems hostname
+     * @var string The systems hostname.
      */
     protected $hostname;
 
-    function getHostname(){
-        if($this->hostname !== null){
+    /**
+     * {@inheritDoc}
+     */
+    public function getHostname()
+    {
+        if ($this->hostname !== null) {
             return $this->hostname;
         }
 
@@ -26,5 +30,24 @@ class StandardSystem implements SystemInterface
         }
 
         return $this->hostname;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function getCurrentPid()
+    {
+        return $this->createCurrentProcess()->getPid();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function createCurrentProcess()
+    {
+        $process = new Process();
+        $process->setPidFromCurrentProcess();
+
+        return $process;
     }
 }

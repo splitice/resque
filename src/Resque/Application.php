@@ -1,32 +1,33 @@
 <?php
 namespace Resque;
 
-use Resque\Component\Core\Exception\ResqueRuntimeException;
-use Resque\Component\Core\ResqueEvents;
-use Resque\Component\Log\SimpleLogger;
-use Resque\Component\Queue\Factory\QueueFactory;
-use Resque\Component\System\StandardSystem;
-use Resque\Redis\RedisQueueStorage;
-use Resque\Redis\RedisStatistic;
-use Resque\Component\Queue\Registry\QueueRegistry;
-use RuntimeException;
 use Predis\Client;
+use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Resque\Component\Core\Event\EventDispatcher;
+use Resque\Component\Core\Exception\ResqueRuntimeException;
 use Resque\Component\Core\Foreman;
-use Resque\Redis\Bridge\PredisBridge;
+use Resque\Component\Core\ResqueEvents;
 use Resque\Component\Job\Factory\JobInstanceFactory;
 use Resque\Component\Job\ResqueJobEvents;
+use Resque\Component\Log\SimpleLogger;
+use Resque\Component\Queue\Factory\QueueFactory;
+use Resque\Component\Queue\Registry\QueueRegistry;
+use Resque\Component\System\StandardSystem;
 use Resque\Component\Worker\Factory\WorkerFactory;
+use Resque\Component\Worker\Registry\WorkerRegistry;
 use Resque\Component\Worker\ResqueWorkerEvents;
+use Resque\Redis\Bridge\PredisBridge;
 use Resque\Redis\RedisEventListener;
 use Resque\Redis\RedisFailure;
 use Resque\Redis\RedisQueueRegistryAdapter;
-use Psr\Log\LoggerInterface;
-use Resque\Redis\RedisWorkerRegistry;
+use Resque\Redis\RedisQueueStorage;
+use Resque\Redis\RedisStatistic;
+use Resque\Redis\RedisWorkerRegistryAdapter;
+use RuntimeException;
 
 /**
- * Resque application
+ * Resque application.
  *
  * A simple class that fires up some workers. It's configuration is based on Resque/Resque 1.x usage
  * of environment variables.
@@ -98,7 +99,12 @@ class Application
     public $workerFactory;
 
     /**
-     * @var RedisWorkerRegistry
+     * @var \Resque\Redis\RedisWorkerRegistryAdapter|\Resque\Component\Worker\Registry\WorkerRegistryAdapterInterface
+     */
+    public $workerRegistryAdapter;
+
+    /**
+     * @var WorkerRegistry
      */
     public $workerRegistry;
 
@@ -152,6 +158,7 @@ class Application
         $this->setupStatisticBackend();
         $this->setupJobInstanceFactory();
         $this->setupWorkerFactory();
+        $this->setupWorkerRegistryAdapter();
         $this->setupWorkerRegistry();
         $this->setupWorkers();
         $this->setupForeman();
@@ -168,13 +175,13 @@ class Application
             'app_include' => getenv('APP_INCLUDE'),
             'worker_count' => false === getenv('COUNT') ? 1 : getenv('COUNT'),
             'queues' => getenv('QUEUE'),
-            'queue_blocking' => (bool) getenv('BLOCKING'),
-            'queue_interval' =>  false === getenv('INTERVAL') ? 5 : getenv('INTERVAL'),
-            'redis_prefix' =>  false === getenv('PREFIX') ? 'resque' : getenv('PREFIX'),
-            'redis_dsn' =>  getenv('REDIS_BACKEND'),
-            'logging' => (bool) getenv('LOGGING'),
-            'verbose' => (bool) getenv('VERBOSE'),
-            'very_verbose' => (bool) getenv('VVERBOSE'),
+            'queue_blocking' => (bool)getenv('BLOCKING'),
+            'queue_interval' => false === getenv('INTERVAL') ? 5 : getenv('INTERVAL'),
+            'redis_prefix' => false === getenv('PREFIX') ? 'resque' : getenv('PREFIX'),
+            'redis_dsn' => getenv('REDIS_BACKEND'),
+            'logging' => (bool)getenv('LOGGING'),
+            'verbose' => (bool)getenv('VERBOSE'),
+            'very_verbose' => (bool)getenv('VVERBOSE'),
         );
     }
 
@@ -236,7 +243,7 @@ class Application
     {
         if (null === $this->redisClient) {
             $this->redisClient = new PredisBridge(
-                    new Client(
+                new Client(
                     $this->config['redis_dsn'],
                     array(
                         'prefix' => $this->config['redis_prefix'] . ':'
@@ -255,7 +262,7 @@ class Application
             array($redisEventListener, 'disconnectFromRedis')
         );
         $this->eventDispatcher->addListener(
-            ResqueEvents::BEFORE_FORK,
+            ResqueEvents::PRE_FORK,
             array($redisEventListener, 'disconnectFromRedis')
         );
         $this->eventDispatcher->addListener(
@@ -372,11 +379,18 @@ class Application
         }
     }
 
+    protected function setupWorkerRegistryAdapter()
+    {
+        if (null === $this->workerRegistryAdapter) {
+            $this->workerRegistryAdapter = new RedisWorkerRegistryAdapter($this->redisClient);
+        }
+    }
+
     protected function setupWorkerRegistry()
     {
         if (null === $this->workerRegistry) {
-            $this->workerRegistry = new RedisWorkerRegistry(
-                $this->redisClient,
+            $this->workerRegistry = new WorkerRegistry(
+                $this->workerRegistryAdapter,
                 $this->eventDispatcher,
                 $this->workerFactory
             );
@@ -396,7 +410,7 @@ class Application
     protected function setupWorkers()
     {
         // This method of worker setup requires an array of queues
-        if(!is_array($this->queues)){
+        if (!is_array($this->queues)) {
             throw new ResqueRuntimeException("Queues not initialized correctly.");
         }
 
@@ -419,7 +433,8 @@ class Application
         $this->foreman->setLogger($this->logger);
     }
 
-    protected function queueDescription(){
+    protected function queueDescription()
+    {
         return implode($this->queues, ',');
     }
 

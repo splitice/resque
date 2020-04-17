@@ -105,7 +105,8 @@ class Worker implements
         $this->eventDispatcher = $eventDispatcher;
     }
 
-    public function isShutdown(){
+    public function isShutdown()
+    {
         return $this->shutdown;
     }
 
@@ -272,6 +273,11 @@ class Worker implements
                         ResqueWorkerEvents::AFTER_FORK_TO_PERFORM,
                         new WorkerJobEvent($this, $job)
                     );
+
+                    // @todo do not construct Process here.
+                    $child = new Process();
+                    $child->setPidFromCurrentProcess();
+                    $this->setProcess($child);
 
                     $this->perform($job);
 

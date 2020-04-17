@@ -15,15 +15,16 @@ interface JobInterface
     public function getFork();
 
     /**
-     * Set Id
+     * Set Id.
      *
-     * @param string $id
+     * @param string $id The id of this job.
+     *
      * @return $this
      */
     public function setId($id);
 
     /**
-     * Get id
+     * Get Id.
      *
      * @return string
      */
@@ -32,9 +33,10 @@ interface JobInterface
     /**
      * Set target job class
      *
-     * @todo I think I should rename this to "target". It's up to the instance factory what it means..
+     * @todo I think I should rename this to "target". It's up to the instance factory to know what it means..
      *
      * @param $class
+     *
      * @return void
      */
     public function setJobClass($class);
@@ -50,7 +52,8 @@ interface JobInterface
      * Set arguments.
      *
      * @param array $args An array of parameters for the job.
-     * @throws \InvalidArgumentException when $args is not an array
+     * @throws \InvalidArgumentException when $args is not an array.
+     *
      * @return void
      */
     public function setArguments($args);
